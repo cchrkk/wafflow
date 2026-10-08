@@ -69,6 +69,11 @@ Notes worth knowing:
   downloads nothing. It respects `settings.mediaRetentionDays`.
 - Telegram caps a text at **4096** characters and a caption at **1024**: longer ones are
   truncated with a `…`, never refused. The media itself still arrives in full.
+- `threadId` is a topic's **message thread id**. Open the topic → ⋮ → *Topic Info*: the
+  link shown there looks like `t.me/c/<internal-id>/<thread-id>`. The **second** number is
+  the `threadId`; the first is the group's internal id, so the destination is
+  `chatId: "-100<internal-id>"`. Without `threadId` (or with `General` selected) the copy
+  lands in the group's **General** topic, and the bot needs permission to post in topics.
 - Messages **you** send are skipped unless `settings.processOwnMessages: true`; replies,
   edits and protocol messages are not mirrored by design (see
   [the read-only mode](../README.md#read-only-mode)).
