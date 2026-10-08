@@ -9,8 +9,9 @@ import { appendJsonl } from './store.js';
 const log = childLogger('actions');
 const execAsync = promisify(exec);
 
-export function render(template, ctx) {
+export function render(template, ctx, opts = {}) {
   if (template == null) return '';
+  const { escape } = opts;
   const map = {
     // valori lasciati dalle azioni precedenti della stessa regola (es. {{assist}})
     ...(ctx.outputs || {}),
@@ -38,7 +39,13 @@ export function render(template, ctx) {
     Object.assign(map, ctx.captures.named);
   }
 
-  return String(template).replace(/\{\{(\w+)\}\}/g, (m, k) => (k in map ? map[k] : m));
+  return String(template).replace(/\{\{(\w+)\}\}/g, (m, k) => {
+    if (!(k in map)) return m;
+    // Con `escape` (parse_mode attivo) i VALORI vengono neutralizzati, la
+    // sintassi scritta nel template no: così <b>{{sender}}</b> resta bold e
+    // un mittente con "&" o "<" non rompe il messaggio.
+    return escape ? escape(String(map[k])) : map[k];
+  });
 }
 
 /** Applica i segnaposto anche dentro oggetti e array (body, data, variables, ...). */
@@ -107,6 +114,21 @@ const TELEGRAM_TEXT_LIMIT = 4096;
 const TELEGRAM_CAPTION_LIMIT = 1024;
 const MIRROR_MEDIA_TYPES = new Set(['audio', 'image', 'video', 'document', 'sticker']);
 
+/**
+ * Neutralizza i caratteri che, con un parse_mode attivo, Telegram vuole
+ * "escaped". Si applica ai valori dei segnaposto e al testo del messaggio, non
+ * alla sintassi scritta a mano nel template (es. `<b>...</b>`).
+ */
+const TELEGRAM_ESCAPERS = {
+  HTML: (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
+  MARKDOWNV2: (s) => s.replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, (c) => `\\${c}`),
+  MARKDOWN: (s) => s.replace(/([_*[\]`])/g, (c) => `\\${c}`),
+};
+
+function telegramEscaper(parseMode) {
+  return TELEGRAM_ESCAPERS[String(parseMode || '').toUpperCase()] || ((s) => s);
+}
+
 function truncateForTelegram(value, limit) {
   const text = String(value ?? '');
   return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`;
@@ -168,9 +190,13 @@ function describeMessage(ctx) {
  */
 async function mirrorToTelegram(a, ctx, { token, chatId }) {
   const timeoutMs = Number(a.timeoutMs) || env.actionTimeoutMs;
-  const prefix = a.prefix === false ? '' : render(a.prefix ?? '{{sender}}', ctx).trim();
-  const body = String(ctx.text || ctx.transcript || '').trim();
+  // Con parseMode la sintassi del template resta intatta (<b>…</b>) mentre i
+  // valori dei segnaposto e il testo del messaggio vengono neutralizzati.
+  const escape = telegramEscaper(a.parseMode);
+  const prefix = a.prefix === false ? '' : render(a.prefix ?? '{{sender}}', ctx, { escape }).trim();
+  const body = escape(String(ctx.text || ctx.transcript || '').trim());
   const common = { chat_id: chatId };
+  if (a.parseMode) common.parse_mode = a.parseMode;
   if (a.silent === true) common.disable_notification = true;
   if (a.threadId != null) common.message_thread_id = Number(render(String(a.threadId), ctx));
 

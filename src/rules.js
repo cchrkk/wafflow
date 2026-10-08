@@ -152,6 +152,16 @@ function matchesType(value, spec) {
 }
 
 /**
+ * Le uniche chiavi che `ruleMatches()` guarda. Tutto il resto dentro `match`
+ * viene ignorato in silenzio — è così che un `threadId` (che è un parametro
+ * dell'azione, non un criterio) finisce per non fare nulla. `--check` lo segnala.
+ */
+export const MATCH_KEYS = [
+  'chatJid', 'chatName', 'senderJid', 'senderName', 'self',
+  'type', 'isGroup', 'ptt', 'mediaMimetype', 'textMatch',
+];
+
+/**
  * Verifica se un messaggio normalizzato soddisfa il match di una regola.
  * `resolvedText` è il testo utile: body del messaggio oppure trascrizione.
  */
