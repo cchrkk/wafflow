@@ -12,6 +12,7 @@ action of the same rule can use it.
 | `log` | `level`, `message` | writes to the log |
 | `notify.console` | `message` | prints to the terminal, highlighted |
 | `notify.telegram` | `message`, `chatId?`, `parseMode?` | Telegram message |
+| `mirror.telegram` | `chatId?`, `prefix?`, `asDocument?`, `silent?`, `threadId?`, `token?`, `timeoutMs?` | mirrors **all** of a message — text and media — to a Telegram chat |
 | `webhook` | `url`, `method?`, `headers?`, `body?` | JSON POST (full payload if `body` is absent) |
 | `ha.notify` | `service`, `message`, `title?`, `data?` | phone notification (shortcut for `notify.*`) |
 | `ha.button` | `button` | presses a `button.*` entity |
@@ -30,6 +31,49 @@ Home Assistant specifics are in [home-assistant.md](home-assistant.md).
 > The `reply` action is the one thing here that can break in a way you cannot repair from the
 > server: read the warning in the README before turning it on
 > ([the exception](../README.md#the-one-exception-allow_reply)).
+
+## Mirroring a chat to Telegram
+
+`notify.telegram` sends a **notice** you compose yourself. `mirror.telegram` is the other
+way round: it copies the message as it is — text, photo, voice note, video, document,
+sticker — into a Telegram chat. One rule that matches the chat is the whole bridge:
+
+```yaml
+- id: mirror-orders-to-telegram
+  name: "Orders → Telegram"
+  match:
+    chatName: Orders        # no "type": every kind of message fires
+  actions:
+    - type: mirror.telegram
+      chatId: "-1001234567890"   # default: TELEGRAM_CHAT_ID from .env
+```
+
+Each message type goes to its natural Telegram call: `sendMessage`, `sendPhoto`,
+`sendVoice` (voice notes, in ogg/opus), `sendAudio`, `sendVideo`, `sendDocument`,
+`sendSticker`. A sticker refused by Telegram (animated ones) is resent as a file rather
+than lost. Messages with nothing to send — locations, contacts, polls — arrive as a short
+line that says what they are.
+
+| parameter | default | what it does |
+|---|---|---|
+| `chatId` | `TELEGRAM_CHAT_ID` | destination chat (groups start with `-100…`) |
+| `prefix` | `{{sender}}` | text prepended to the content; `prefix: false` removes it |
+| `asDocument` | `false` | send photos and stickers as files, without Telegram compression |
+| `silent` | `false` | deliver without a Telegram notification |
+| `threadId` | — | post into one topic of a Telegram **forum** group |
+| `token`, `timeoutMs` | from `.env` | override the bot and the network timeout |
+
+Notes worth knowing:
+
+- The **media is downloaded** when the mirror needs it, not before: a text-only chat
+  downloads nothing. It respects `settings.mediaRetentionDays`.
+- Telegram caps a text at **4096** characters and a caption at **1024**: longer ones are
+  truncated with a `…`, never refused. The media itself still arrives in full.
+- Messages **you** send are skipped unless `settings.processOwnMessages: true`; replies,
+  edits and protocol messages are not mirrored by design (see
+  [the read-only mode](../README.md#read-only-mode)).
+- The bot must already be able to write in the destination chat: send it `/start` in a
+  private chat, or add it to the group.
 
 ## Placeholders
 

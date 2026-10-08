@@ -59,7 +59,7 @@ by far the fastest way to understand what you are doing.
 | **Rules** | match on chat, sender, type, text and transcript; regex with Unicode boundaries; priorities; several rules on the same message |
 | **Voice notes** | transcribed before matching, so you can filter on *what was said* |
 | **Classification** | an optional LLM decides what a message is about (work, orders, spam) |
-| **Actions** | Telegram, Home Assistant (notifications, scripts, lights, automations, Assist), webhooks, JSONL files, local commands |
+| **Actions** | Telegram (notices **and chat mirroring**, media included), Home Assistant (notifications, scripts, lights, automations, Assist), webhooks, JSONL files, local commands |
 | **Contacts** | keeps LIDs, phone numbers and names together: WhatsApp is migrating to anonymous IDs and your jids keep working |
 | **Web panel** | rule editor that validates before saving, plus a test bench |
 | **Docker** | public image on GHCR, deploy without building |
