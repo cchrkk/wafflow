@@ -115,6 +115,21 @@ await check('parseMode HTML escapes the media caption too', async () => {
   eq(calls[0].init.body.get('caption'), 'Mario x &amp; y');
 });
 
+await check('message: a full template, newline included, values escaped', async () => {
+  const { calls } = await mirror(
+    { parseMode: 'HTML', message: '<b>{{sender}}</b>\n{{content}}' },
+    { type: 'text', senderName: 'Mario & Co.' },
+    { text: 'riga due' },
+  );
+  eq(bodyOf(calls[0]).text, '<b>Mario &amp; Co.</b>\nriga due');
+});
+
+await check('message: the template is the caption of media too', async () => {
+  const msg = { type: 'audio', ptt: true, mediaMimetype: 'audio/ogg; codecs=opus', mediaFile };
+  const { calls } = await mirror({ parseMode: 'HTML', message: '{{sender}}\n{{transcript}}' }, msg, { text: '', transcript: 'ciao' });
+  eq(calls[0].init.body.get('caption'), 'Mario\nciao');
+});
+
 await check('a message with no text at all says what it is', async () => {
   const { calls } = await mirror({}, { type: 'location' }, { text: '' });
   eq(methodOf(calls[0]), 'sendMessage');

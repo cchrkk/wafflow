@@ -200,9 +200,18 @@ async function mirrorToTelegram(a, ctx, { token, chatId }) {
   if (a.silent === true) common.disable_notification = true;
   if (a.threadId != null) common.message_thread_id = Number(render(String(a.threadId), ctx));
 
+  // Il testo/caption: con "message" lo componi tu (a capo, ordine, altro),
+  // altrimenti "prefix" + contenuto su una riga. I valori restano escapati.
+  const hasContent = body !== '' || a.message != null;
+  const composed = a.message != null
+    ? render(a.message, ctx, { escape }).trim()
+    : [prefix, body].filter(Boolean).join(' ');
+
   // Testo e tipi che non sono media: un semplice sendMessage.
   if (!MIRROR_MEDIA_TYPES.has(ctx.msg.type)) {
-    const text = truncateForTelegram([prefix, body || describeMessage(ctx)].filter(Boolean).join(' '), TELEGRAM_TEXT_LIMIT);
+    // Un messaggio senza contenuto (solo prefisso) dice almeno cosa è.
+    const fallback = [prefix, describeMessage(ctx)].filter(Boolean).join(' ');
+    const text = truncateForTelegram(hasContent ? composed || fallback : fallback, TELEGRAM_TEXT_LIMIT);
     await telegramApi(token, 'sendMessage', { ...common, text, disable_web_page_preview: true }, timeoutMs);
     return;
   }
@@ -210,7 +219,7 @@ async function mirrorToTelegram(a, ctx, { token, chatId }) {
   const file = await ensureMediaFile(ctx);
   if (!file) throw new Error(`mirror.telegram: the ${ctx.msg.type} media could not be downloaded`);
 
-  const caption = truncateForTelegram([prefix, body].filter(Boolean).join(' '), TELEGRAM_CAPTION_LIMIT);
+  const caption = truncateForTelegram(composed, TELEGRAM_CAPTION_LIMIT);
   const withCaption = caption ? { caption } : {};
   const mimetype = ctx.msg.mediaMimetype || '';
   const filename = ctx.msg.fileName || path.basename(file);

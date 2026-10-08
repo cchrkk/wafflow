@@ -12,7 +12,7 @@ action of the same rule can use it.
 | `log` | `level`, `message` | writes to the log |
 | `notify.console` | `message` | prints to the terminal, highlighted |
 | `notify.telegram` | `message`, `chatId?`, `parseMode?` | Telegram message |
-| `mirror.telegram` | `chatId?`, `prefix?`, `parseMode?`, `asDocument?`, `silent?`, `threadId?`, `token?`, `timeoutMs?` | mirrors **all** of a message — text and media — to a Telegram chat |
+| `mirror.telegram` | `chatId?`, `prefix?`, `message?`, `parseMode?`, `asDocument?`, `silent?`, `threadId?`, `token?`, `timeoutMs?` | mirrors **all** of a message — text and media — to a Telegram chat |
 | `webhook` | `url`, `method?`, `headers?`, `body?` | JSON POST (full payload if `body` is absent) |
 | `ha.notify` | `service`, `message`, `title?`, `data?` | phone notification (shortcut for `notify.*`) |
 | `ha.button` | `button` | presses a `button.*` entity |
@@ -50,7 +50,9 @@ sticker — into a Telegram chat. One rule that matches the chat is the whole br
       chatId: "-1001234567890"   # default: TELEGRAM_CHAT_ID from .env
       threadId: 15               # a topic of a forum group (see below)
       parseMode: HTML
-      prefix: "<b>{{sender}}</b> - "
+      # sender on one line, the text/transcript on the next:
+      message: "<b>{{sender}}</b>\n{{content}}"
+      # (or the simple one-line form: prefix: "<b>{{sender}}</b> - ")
 ```
 
 Each message type goes to its natural Telegram call: `sendMessage`, `sendPhoto`,
@@ -62,12 +64,25 @@ line that says what they are.
 | parameter | default | what it does |
 |---|---|---|
 | `chatId` | `TELEGRAM_CHAT_ID` | destination chat (groups start with `-100…`) |
-| `prefix` | `{{sender}}` | text prepended to the content; `prefix: false` removes it |
-| `parseMode` | — (plain) | `HTML`, `MarkdownV2` or `Markdown`: lets you write markup in `prefix` |
+| `prefix` | `{{sender}}` | text put before the content, on the **same line**; `prefix: false` removes it |
+| `message` | — | full template for the text/caption, **overrides `prefix`**; lets you choose the line breaks |
+| `parseMode` | — (plain) | `HTML`, `MarkdownV2` or `Markdown`: lets you write markup in `prefix`/`message` |
 | `asDocument` | `false` | send photos and stickers as files, without Telegram compression |
 | `silent` | `false` | deliver without a Telegram notification |
 | `threadId` | — | post into one topic of a Telegram **forum** group |
 | `token`, `timeoutMs` | from `.env` | override the bot and the network timeout |
+
+**Line breaks.** `prefix` and the content always end up on one line. To put the sender on
+one line and the message on the next, use `message` with a newline — `\n` inside a
+double-quoted YAML string, or a `|` block:
+
+```yaml
+      message: "<b>{{sender}}</b>\n{{content}}"
+      # or
+      message: |
+        <b>{{sender}}</b>
+        {{content}}
+```
 
 With `parseMode` set, the markup written **in the rule** (`<b>`, `*…*`) is sent as-is,
 while the **values** — the sender name, the message text, the transcript — are escaped
