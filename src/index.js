@@ -7,7 +7,7 @@ import { handleMessage } from './pipeline.js';
 import { startWhatsApp } from './whatsapp.js';
 import { assertTranscribeReady, transcribeBackendName } from './transcribe.js';
 import { ACTION_TYPES, PLACEHOLDERS } from './actions.js';
-import { auditRegexes } from './rules.js';
+import { auditRegexes, MATCH_KEYS } from './rules.js';
 import { flush, getStats } from './store.js';
 import { directory, flushContacts } from './contacts.js';
 import { sweepMedia } from './media.js';
@@ -108,6 +108,22 @@ async function runCheck(config) {
     }
   }
   logger.info(`  ✓ ${usedTypes.size} action types used, all recognised`);
+
+  // Chiavi ignote dentro `match`: sono la trappola del `threadId` messo lì
+  // invece che nell'azione. Il motore le salta senza dire niente.
+  const idConChiaviIgnote = new Set();
+  for (const r of config.rules) {
+    const unknown = Object.keys(r.match || {}).filter((k) => !MATCH_KEYS.includes(k));
+    if (unknown.length) idConChiaviIgnote.add(`"${r.id}": ${unknown.join(', ')}`);
+  }
+  if (idConChiaviIgnote.size) {
+    ok = false;
+    for (const riga of idConChiaviIgnote) {
+      logger.error(`  ✗ match with unknown key(s) — ignored: ${riga}`);
+    }
+    logger.error(`     allowed in match: ${MATCH_KEYS.join(', ')}`);
+    logger.error('     is one of them an action parameter (e.g. threadId)? move it under the action’s "type"');
+  }
 
   const ret = config.settings.mediaRetentionDays;
   const retLabel = ret < 0 ? 'never' : ret === 0 ? 'deleted right after processing' : `${ret} days`;

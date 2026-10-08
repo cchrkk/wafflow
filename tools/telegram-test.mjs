@@ -94,6 +94,27 @@ await check('a custom prefix uses the placeholders', async () => {
   eq(bodyOf(calls[0]).text, '[Orders] Mario: hi');
 });
 
+await check('threadId becomes message_thread_id (topic routing)', async () => {
+  const { calls } = await mirror({ threadId: 15 }, { type: 'text' }, { text: 'hi' });
+  eq(bodyOf(calls[0]).message_thread_id, 15);
+});
+
+await check('parseMode HTML: markup in the prefix stays, the values are escaped', async () => {
+  const { calls } = await mirror(
+    { parseMode: 'HTML', prefix: '<b>{{sender}}</b> -' },
+    { type: 'text', senderName: 'Mario & Co.' },
+    { text: 'a & b < c' },
+  );
+  eq(bodyOf(calls[0]).parse_mode, 'HTML');
+  eq(bodyOf(calls[0]).text, '<b>Mario &amp; Co.</b> - a &amp; b &lt; c');
+});
+
+await check('parseMode HTML escapes the media caption too', async () => {
+  const { calls } = await mirror({ parseMode: 'HTML' }, withMedia, { text: 'x & y' });
+  eq(calls[0].init.body.get('parse_mode'), 'HTML');
+  eq(calls[0].init.body.get('caption'), 'Mario x &amp; y');
+});
+
 await check('a message with no text at all says what it is', async () => {
   const { calls } = await mirror({}, { type: 'location' }, { text: '' });
   eq(methodOf(calls[0]), 'sendMessage');

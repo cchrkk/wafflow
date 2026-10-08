@@ -12,7 +12,7 @@ action of the same rule can use it.
 | `log` | `level`, `message` | writes to the log |
 | `notify.console` | `message` | prints to the terminal, highlighted |
 | `notify.telegram` | `message`, `chatId?`, `parseMode?` | Telegram message |
-| `mirror.telegram` | `chatId?`, `prefix?`, `asDocument?`, `silent?`, `threadId?`, `token?`, `timeoutMs?` | mirrors **all** of a message — text and media — to a Telegram chat |
+| `mirror.telegram` | `chatId?`, `prefix?`, `parseMode?`, `asDocument?`, `silent?`, `threadId?`, `token?`, `timeoutMs?` | mirrors **all** of a message — text and media — to a Telegram chat |
 | `webhook` | `url`, `method?`, `headers?`, `body?` | JSON POST (full payload if `body` is absent) |
 | `ha.notify` | `service`, `message`, `title?`, `data?` | phone notification (shortcut for `notify.*`) |
 | `ha.button` | `button` | presses a `button.*` entity |
@@ -41,11 +41,16 @@ sticker — into a Telegram chat. One rule that matches the chat is the whole br
 ```yaml
 - id: mirror-orders-to-telegram
   name: "Orders → Telegram"
+  priority: 1
+  continue: true
   match:
     chatName: Orders        # no "type": every kind of message fires
   actions:
     - type: mirror.telegram
       chatId: "-1001234567890"   # default: TELEGRAM_CHAT_ID from .env
+      threadId: 15               # a topic of a forum group (see below)
+      parseMode: HTML
+      prefix: "<b>{{sender}}</b> - "
 ```
 
 Each message type goes to its natural Telegram call: `sendMessage`, `sendPhoto`,
@@ -58,10 +63,16 @@ line that says what they are.
 |---|---|---|
 | `chatId` | `TELEGRAM_CHAT_ID` | destination chat (groups start with `-100…`) |
 | `prefix` | `{{sender}}` | text prepended to the content; `prefix: false` removes it |
+| `parseMode` | — (plain) | `HTML`, `MarkdownV2` or `Markdown`: lets you write markup in `prefix` |
 | `asDocument` | `false` | send photos and stickers as files, without Telegram compression |
 | `silent` | `false` | deliver without a Telegram notification |
 | `threadId` | — | post into one topic of a Telegram **forum** group |
 | `token`, `timeoutMs` | from `.env` | override the bot and the network timeout |
+
+With `parseMode` set, the markup written **in the rule** (`<b>`, `*…*`) is sent as-is,
+while the **values** — the sender name, the message text, the transcript — are escaped
+automatically. Otherwise a contact named `A & B` would break the message, or a text
+containing `<` would be rejected by Telegram.
 
 Notes worth knowing:
 
@@ -69,6 +80,13 @@ Notes worth knowing:
   downloads nothing. It respects `settings.mediaRetentionDays`.
 - Telegram caps a text at **4096** characters and a caption at **1024**: longer ones are
   truncated with a `…`, never refused. The media itself still arrives in full.
+- `threadId` is a topic's **message thread id** (an **action** parameter, not a match
+  criterion — `npm run check` flags unknown keys left inside `match`). Open the topic →
+  ⋮ → *Topic Info*: the link shown there looks like `t.me/c/<internal-id>/<thread-id>`.
+  The **second** number is the `threadId`; the first is the group's internal id, so the
+  destination is `chatId: "-100<internal-id>"`. Without `threadId` (or with `General`
+  selected) the copy lands in the group's **General** topic, and the bot needs permission
+  to post in topics.
 - Messages **you** send are skipped unless `settings.processOwnMessages: true`; replies,
   edits and protocol messages are not mirrored by design (see
   [the read-only mode](../README.md#read-only-mode)).

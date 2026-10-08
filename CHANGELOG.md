@@ -15,6 +15,17 @@
   See [examples/13](examples/13-mirror-chat-to-telegram.yaml) and
   [docs/actions.md](docs/actions.md#mirroring-a-chat-to-telegram).
 
+### Fixed
+
+- **`npm run check` now flags unknown keys left inside `match`.** The engine ignores them
+  silently, so a `threadId` written under `match` (it is an action parameter) made every
+  copy land in the group's General topic with no error anywhere.
+
+### Added (mirror.telegram)
+
+- **`parseMode`** (`HTML`, `MarkdownV2`, `Markdown`): markup written in `prefix` is sent
+  as-is, while the sender name and message text are escaped automatically.
+
 ## 2.0.0 — 2026-09-30
 
 ### Renamed
