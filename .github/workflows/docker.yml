@@ -94,6 +94,9 @@ jobs:
       - name: Rule engine
         run: node tools/rules-test.mjs
 
+      - name: Telegram mirror
+        run: node tools/telegram-test.mjs
+
       - name: Health
         run: node tools/health-test.mjs
 

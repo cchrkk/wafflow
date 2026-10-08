@@ -82,6 +82,7 @@ Every push builds and validates:
 | web panel | endpoints, auth, and that broken YAML is refused without touching the file |
 | editor | highlighting, indentation and auto-indent, unit-tested |
 | rule engine | matching, `\b` traps, capture groups, placeholder rendering |
+| telegram mirror | every kind of message becomes the right Telegram call, media included |
 | Docker image | it builds, and it is published to GHCR |
 
 The unit tests are plain Node scripts with no test framework, so you can run any of them
@@ -89,6 +90,7 @@ directly:
 
 ```bash
 node tools/rules-test.mjs
+node tools/telegram-test.mjs
 node tools/editor-test.mjs
 node tools/web-smoke.mjs
 ```

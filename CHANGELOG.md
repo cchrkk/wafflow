@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`mirror.telegram`: a whole WhatsApp chat, mirrored onto Telegram.** One rule that
+  matches the chat (`match.chatName` or `chatJid`, no `type`) copies every message as it
+  is: text, photos, voice notes (as Telegram voice messages), audio, video, documents,
+  stickers. The media is downloaded only when the mirror needs it, and respects
+  `mediaRetentionDays`. Captions are prefixed with the sender (`prefix`, default
+  `{{sender}}`); `asDocument`, `silent`, `threadId` and a per-action `chatId` are
+  supported. Long texts and captions are truncated at Telegram's limits instead of being
+  refused, and animated stickers fall back to being sent as files.
+  See [examples/13](examples/13-mirror-chat-to-telegram.yaml) and
+  [docs/actions.md](docs/actions.md#mirroring-a-chat-to-telegram).
+
 ## 2.0.0 — 2026-09-30
 
 ### Renamed

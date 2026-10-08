@@ -65,15 +65,34 @@ export async function handleMessage({ config, msg, send = null, downloadMedia = 
   let transcript = precomputedTranscript;
   let transcriptDone = Boolean(precomputedTranscript);
   let mediaFile = msg.mediaFile || null;
+  let mediaTried = Boolean(msg.mediaFile);
+
+  // Un solo download per messaggio, condiviso tra trascrizione e azioni (es.
+  // mirror.telegram). Per i soli vocali lo fa ensureTranscript; per gli altri
+  // tipi lo chiede l'azione che ne ha bisogno.
+  async function ensureMedia() {
+    if (mediaFile) return mediaFile;
+    if (mediaTried) return null;
+    mediaTried = true;
+    if (!isMediaType(msg.type) || !downloadMedia) return null;
+    try {
+      mediaFile = await downloadMedia();
+    } catch (err) {
+      log.error({ err: err.message, id: msg.id }, 'media download failed');
+      return null;
+    }
+    return mediaFile;
+  }
+
   async function ensureTranscript() {
     if (transcriptDone) return transcript;
     transcriptDone = true;
     try {
       if (msg.type !== 'audio') return null;
       if (!settings.transcribeAudio) { log.debug('transcription disabled in settings'); return null; }
-      mediaFile = msg.mediaFile || (downloadMedia ? await downloadMedia() : null);
-      if (!mediaFile) { log.warn({ id: msg.id }, 'no audio file available'); return null; }
-      const res = await transcribe(mediaFile);
+      const file = await ensureMedia();
+      if (!file) { log.warn({ id: msg.id }, 'no audio file available'); return null; }
+      const res = await transcribe(file);
       transcript = res?.text || null;
       record.transcript = transcript;
       bump('transcribed');
@@ -135,6 +154,8 @@ export async function handleMessage({ config, msg, send = null, downloadMedia = 
       settings,
       send,
       dryRun,
+      // scarica un media non-audio su richiesta di un'azione (mirror.telegram)
+      downloadMedia: ensureMedia,
       // parole prese dal messaggio con i gruppi di cattura della regex
       captures: extractCaptures(rule, text),
     });
@@ -152,7 +173,7 @@ export async function handleMessage({ config, msg, send = null, downloadMedia = 
   // retention a 0: il file audio ha già dato quello che serviva (la trascrizione).
   // Se la trascrizione è fallita lo teniamo, così si può riprovare.
   if (settings.mediaRetentionDays === 0 && mediaFile && !dryRun) {
-    if (transcript) record.mediaDeleted = deleteMedia(mediaFile);
+    if (transcript || msg.type !== 'audio') record.mediaDeleted = deleteMedia(mediaFile);
     else log.warn({ file: mediaFile }, 'no transcript: keeping the file so you can retry');
   }
 

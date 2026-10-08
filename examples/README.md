@@ -29,6 +29,8 @@ npm run check
 | [09-notes-to-myself](09-notes-to-myself.yaml) | what you write yourself, to Telegram or a file |
 | [10-orders-text](10-orders-text.yaml) | orders chat: written messages with a quantity |
 | [11-orders-voice](11-orders-voice.yaml) | orders chat: voice notes, same keywords |
+| [12-assist-chat](12-assist-chat.yaml) | talk to Home Assistant Assist and get the answer somewhere |
+| [13-mirror-chat-to-telegram](13-mirror-chat-to-telegram.yaml) | copy a whole chat — text **and** media — into Telegram |
 
 To understand **why** a rule did not fire, use the web panel's test bench, or:
 

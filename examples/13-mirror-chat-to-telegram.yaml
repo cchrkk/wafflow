@@ -1,0 +1,42 @@
+# ============================================================
+#  MIRROR A WHOLE CHAT TO TELEGRAM
+#
+#  Every message of one WhatsApp chat is copied into a Telegram
+#  chat: text, photos, voice notes, videos, documents, stickers.
+#  Nothing is filtered by content — what arrives, arrives.
+#
+#  The chat to mirror is chosen by name (or, better, by its jid,
+#  which never changes if you rename the contact).
+#
+#  The Telegram destination is the "chatId" of the action. If you
+#  leave it out, TELEGRAM_CHAT_ID from .env is used.
+#
+#  How to get a chat id:
+#    - `npm run check` prints the id of the chat configured in .env;
+#    - for another chat, write to @userinfobot in Telegram and copy
+#      the number (group/supergroup ids start with -100...);
+#    - the bot must be a member of a group before it can post there.
+# ============================================================
+
+rules:
+  - id: mirror-chat-to-telegram
+    name: "Orders → Telegram"
+    priority: 100
+    enabled: false
+
+    match:
+      # No "type": this rule fires on every kind of message in the chat.
+      chatName: Orders          # or: chatJid: "390000000000@s.whatsapp.net"
+
+    actions:
+      - type: mirror.telegram
+        chatId: "-1001234567890"
+        # prefix: "{{sender}}"   # default: who wrote it, then the text
+        # asDocument: true       # send photos/stickers as files, no compression
+        # silent: true           # copy without a Telegram notification
+        # threadId: 42           # post into one topic of a forum group
+
+    # Messages YOU send are skipped unless settings.processOwnMessages is true.
+    # To mirror both directions, set it in config/rules.yaml:
+    #   settings:
+    #     processOwnMessages: true

@@ -1,5 +1,7 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
+import fs from 'node:fs';
+import path from 'node:path';
 import { env, paths } from './config.js';
 import { childLogger } from './logger.js';
 import { appendJsonl } from './store.js';
@@ -95,6 +97,140 @@ function payload(ctx) {
   };
 }
 
+// --- Telegram --------------------------------------------------------------
+// `notify.telegram` sends short notices; `mirror.telegram` copies a whole chat
+// across, media included. Telegram caps a text at 4096 characters and a caption
+// at 1024, so both are truncated with an ellipsis instead of being refused.
+
+const TELEGRAM_API = 'https://api.telegram.org';
+const TELEGRAM_TEXT_LIMIT = 4096;
+const TELEGRAM_CAPTION_LIMIT = 1024;
+const MIRROR_MEDIA_TYPES = new Set(['audio', 'image', 'video', 'document', 'sticker']);
+
+function truncateForTelegram(value, limit) {
+  const text = String(value ?? '');
+  return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`;
+}
+
+/** Chiamata JSON a Telegram: l'errore porta la descrizione che dà il bot. */
+async function telegramApi(token, method, params, timeoutMs = env.actionTimeoutMs) {
+  const res = await fetch(`${TELEGRAM_API}/bot${token}/${method}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!data.ok) throw new Error(`telegram ${method}: ${data.description || `HTTP ${res.status}`}`);
+  return data.result;
+}
+
+/** Invio di un file con multipart/form-data. */
+async function telegramFile(token, method, fields, fileField, filePath, filename, mimetype, timeoutMs = env.actionTimeoutMs) {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined && value !== null) form.append(key, String(value));
+  }
+  const buffer = fs.readFileSync(filePath);
+  form.append(fileField, new Blob([buffer], { type: mimetype || 'application/octet-stream' }), filename);
+
+  const res = await fetch(`${TELEGRAM_API}/bot${token}/${method}`, {
+    method: 'POST',
+    body: form,
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!data.ok) throw new Error(`telegram ${method}: ${data.description || `HTTP ${res.status}`}`);
+  return data.result;
+}
+
+/**
+ * Il file del media: quello già scaricato (es. per la trascrizione), oppure lo
+ * scarica ora. La pipeline passa `ctx.downloadMedia` solo quando serve davvero,
+ * così un mirror di soli testi non scarica niente.
+ */
+async function ensureMediaFile(ctx) {
+  if (ctx.mediaFile) return ctx.mediaFile;
+  if (typeof ctx.downloadMedia === 'function') return await ctx.downloadMedia();
+  return null;
+}
+
+/** Messaggi senza testo (location, contatti, poll): una riga che dice cosa sono. */
+function describeMessage(ctx) {
+  const t = ctx.msg.type || 'message';
+  const emoji = { location: '📍', contact: '👤', poll: '📊', event: '📅' }[t];
+  return `${emoji ? `${emoji} ` : ''}[${t}]`;
+}
+
+/**
+ * Copia un messaggio su Telegram, media inclusi: è quello che usa l'azione
+ * `mirror.telegram`. Una regola che matcha una chat fa da ponte verso Telegram.
+ */
+async function mirrorToTelegram(a, ctx, { token, chatId }) {
+  const timeoutMs = Number(a.timeoutMs) || env.actionTimeoutMs;
+  const prefix = a.prefix === false ? '' : render(a.prefix ?? '{{sender}}', ctx).trim();
+  const body = String(ctx.text || ctx.transcript || '').trim();
+  const common = { chat_id: chatId };
+  if (a.silent === true) common.disable_notification = true;
+  if (a.threadId != null) common.message_thread_id = Number(render(String(a.threadId), ctx));
+
+  // Testo e tipi che non sono media: un semplice sendMessage.
+  if (!MIRROR_MEDIA_TYPES.has(ctx.msg.type)) {
+    const text = truncateForTelegram([prefix, body || describeMessage(ctx)].filter(Boolean).join(' '), TELEGRAM_TEXT_LIMIT);
+    await telegramApi(token, 'sendMessage', { ...common, text, disable_web_page_preview: true }, timeoutMs);
+    return;
+  }
+
+  const file = await ensureMediaFile(ctx);
+  if (!file) throw new Error(`mirror.telegram: the ${ctx.msg.type} media could not be downloaded`);
+
+  const caption = truncateForTelegram([prefix, body].filter(Boolean).join(' '), TELEGRAM_CAPTION_LIMIT);
+  const withCaption = caption ? { caption } : {};
+  const mimetype = ctx.msg.mediaMimetype || '';
+  const filename = ctx.msg.fileName || path.basename(file);
+  const duration = ctx.msg.seconds ? Math.round(ctx.msg.seconds) : undefined;
+
+  let method, field, params;
+  switch (ctx.msg.type) {
+    case 'image':
+      if (a.asDocument) { method = 'sendDocument'; field = 'document'; params = withCaption; }
+      else { method = 'sendPhoto'; field = 'photo'; params = withCaption; }
+      break;
+    case 'audio':
+      // I vocali (ptt) sono ogg/opus: sendVoice li mostra come vocali anche su Telegram.
+      if (ctx.msg.ptt && /ogg|opus/i.test(mimetype)) { method = 'sendVoice'; field = 'voice'; params = { ...withCaption, duration }; }
+      else { method = 'sendAudio'; field = 'audio'; params = { ...withCaption, duration }; }
+      break;
+    case 'video':
+      method = 'sendVideo'; field = 'video'; params = { ...withCaption, duration };
+      break;
+    case 'sticker':
+      if (a.asDocument) { method = 'sendDocument'; field = 'document'; params = withCaption; }
+      else { method = 'sendSticker'; field = 'sticker'; params = {}; }
+      break;
+    default: // document
+      method = 'sendDocument'; field = 'document'; params = withCaption;
+  }
+
+  // Uno sticker non accetta didascalia: il testo va in un messaggio a parte.
+  if (method === 'sendSticker' && caption) {
+    await telegramApi(token, 'sendMessage', { ...common, text: caption, disable_web_page_preview: true }, timeoutMs);
+  }
+
+  try {
+    await telegramFile(token, method, { ...common, ...params }, field, file, filename, mimetype, timeoutMs);
+  } catch (err) {
+    // Gli sticker animati di WhatsApp non passano da sendSticker: meglio
+    // mandarli come file che perderli.
+    if (method === 'sendSticker') {
+      log.warn({ err: err.message }, 'sendSticker failed, retrying as a document');
+      await telegramFile(token, 'sendDocument', { ...common, ...withCaption }, 'document', file, filename, mimetype, timeoutMs);
+      return;
+    }
+    throw err;
+  }
+}
+
 const HANDLERS = {
   log: async (a, ctx) => {
     log[String(a.level || 'info')]({ rule: ctx.rule.id }, render(a.message, ctx) || 'log action');
@@ -115,6 +251,24 @@ const HANDLERS = {
       parse_mode: a.parseMode || 'Markdown',
       disable_web_page_preview: true,
     });
+  },
+
+  /**
+   * Copia su Telegram **tutto** il messaggio, media compresi: è il ponte tra
+   * una chat WhatsApp e una chat Telegram (vedi docs/actions.md#mirroring-a-chat-to-telegram).
+   *
+   *   - type: mirror.telegram
+   *     chatId: "-1001234567890"     # default: TELEGRAM_CHAT_ID
+   *
+   * Il testo/caption è "{{sender}} {{content}}"; `prefix: false` toglie il nome.
+   * Immagini → sendPhoto, vocali → sendVoice, audio → sendAudio, video → sendVideo,
+   * documenti → sendDocument, sticker → sendSticker (con ripiego su file).
+   */
+  'mirror.telegram': async (a, ctx) => {
+    const token = a.token || env.telegramToken;
+    const chatId = a.chatId || env.telegramChatId;
+    if (!token || !chatId) throw new Error('telegram not configured (TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID)');
+    await mirrorToTelegram(a, ctx, { token, chatId });
   },
 
   webhook: async (a, ctx) => {

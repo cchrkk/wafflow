@@ -147,10 +147,10 @@ async function runCheck(config) {
     logger.info(`  ✓ all {{...}} placeholders are valid${gruppiConNome.size ? ` (groups: ${[...gruppiConNome].join(', ')})` : ''}`);
   }
 
-  if (usedTypes.has('notify.telegram')) {
+  if (usedTypes.has('notify.telegram') || usedTypes.has('mirror.telegram')) {
     if (!env.telegramToken || !env.telegramChatId) {
       ok = false;
-      logger.error('  ✗ notify.telegram used but TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID are missing');
+      logger.error('  ✗ telegram used but TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID are missing');
     } else {
       try {
         const me = await telegramApi('getMe');
