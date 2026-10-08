@@ -25,6 +25,9 @@
 
 - **`parseMode`** (`HTML`, `MarkdownV2`, `Markdown`): markup written in `prefix` is sent
   as-is, while the sender name and message text are escaped automatically.
+- **`message`**: a full template for the text/caption (overrides `prefix`), so you can
+  put the sender on one line and the message on the next:
+  `message: "<b>{{sender}}</b>\n{{content}}"`.
 
 ## 2.0.0 — 2026-09-30
 

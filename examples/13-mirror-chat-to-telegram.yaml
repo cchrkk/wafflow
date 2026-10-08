@@ -31,8 +31,9 @@ rules:
     actions:
       - type: mirror.telegram
         chatId: "-1001234567890"
-        # prefix: "{{sender}}"   # default: who wrote it, then the text
+        # prefix: "{{sender}}"   # default: who wrote it, then the text (one line)
         # parseMode: HTML        # lets you write markup: prefix: "<b>{{sender}}</b> - "
+        # message: "<b>{{sender}}</b>\n{{content}}"   # sender on one line, then the text
         # asDocument: true       # send photos/stickers as files, no compression
         # silent: true           # copy without a Telegram notification
         # threadId: 42           # post into one topic of a forum group
