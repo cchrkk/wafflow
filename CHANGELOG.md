@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.0.1 — 2026-11-11
+
 ### Added
 
 - **Re-pair from the web panel, QR included.** When WhatsApp closes the session

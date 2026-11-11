@@ -1,6 +1,6 @@
 {
   "name": "wafflow",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "private": true,
   "type": "module",
   "description": "Legge i messaggi WhatsApp via Baileys, li categorizza con regole e scatena azioni (trascrizione vocali, notifiche, webhook, HA, reply)",
