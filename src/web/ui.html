@@ -55,6 +55,10 @@
   .b { display: inline-block; padding: 1px 7px; border-radius: 20px; font-size: 11px; font-weight: 600; }
   .b.ok { background: #16302a; color: var(--ok); border: 1px solid #245c4c; }
   .b.ko { background: #2a1a1c; color: var(--ko); border: 1px solid #55272b; }
+  .b.warn { background: #33290f; color: var(--warn); border: 1px solid #6b5620; }
+  .session { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 16px; background: #181b21; }
+  .session .qr { background: #fff; border-radius: 8px; padding: 8px; width: 250px; max-width: 100%; margin: 10px 0; line-height: 0; }
+  .session .qr svg { width: 100%; height: auto; display: block; }
   code { background: #0f1115; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
   .transcript { background: #0f1115; border: 1px solid var(--line); border-radius: 7px; padding: 10px; margin: 8px 0; font-size: 13px; }
   .dim { color: var(--dim); font-size: 12px; }
@@ -136,6 +140,17 @@
 
 <main>
   <section>
+    <div class="session">
+      <h2>WhatsApp session <span id="wa-state" class="b">…</span></h2>
+      <div id="wa-detail" class="dim"></div>
+      <div id="wa-qr" class="qr" hidden></div>
+      <div class="row" style="margin:10px 0 0">
+        <button id="btn-reset">Delete the session and re-pair (QR)</button>
+        <span class="dim" id="wa-reset-note"></span>
+      </div>
+      <div id="wa-result"></div>
+    </div>
+
     <h2>Rules · <span id="rules-file" class="dim"></span></h2>
     <div class="editor">
       <div class="gutter" id="gutter"><div class="lines" id="lines"></div></div>
@@ -375,6 +390,7 @@ $('btn-connect').onclick = () => {
   localStorage.setItem('wa_token', $('token').value.trim());
   load();
   loadLogs();
+  loadSession();
 };
 $('token').value = token();
 
@@ -540,6 +556,80 @@ function sendAudio(f) {
   });
 }
 
+/* ---------------- WhatsApp session ---------------- */
+
+const WA_LABEL = {
+  open: ['connected', 'ok'],
+  qr: ['scan the QR', 'warn'],
+  starting: ['starting…', ''],
+  reconnecting: ['reconnecting…', 'warn'],
+  resetting: ['deleting the session…', 'warn'],
+  expired: ['session expired', 'ko'],
+  unavailable: ['not available', ''],
+};
+
+const WA_HINT = {
+  open: 'Messages are being read.',
+  qr: 'On the phone: WhatsApp → Settings → Linked devices → Link a device.',
+  starting: 'Opening the connection with WhatsApp…',
+  reconnecting: 'The connection dropped, it is retrying by itself.',
+  resetting: 'Deleting the session folder and asking WhatsApp for a new QR…',
+  expired: 'WhatsApp closed this session: delete it and scan a new QR. Rules, contacts and media are not touched.',
+  unavailable: 'This panel was started without a WhatsApp client, so it cannot re-pair.',
+};
+
+let lastQrSvg = '';
+
+function renderSession(s) {
+  const [label, tone] = WA_LABEL[s.state] || [s.state || '?', ''];
+  const b = $('wa-state');
+  b.className = 'b ' + tone;
+  b.textContent = label;
+  $('wa-detail').textContent = WA_HINT[s.state] || '';
+
+  const qr = $('wa-qr');
+  if (s.qrSvg) {
+    qr.hidden = false;
+    // Il QR cambia ogni ~20s: riscriverlo a ogni giro farebbe sbattere l'immagine.
+    if (s.qrSvg !== lastQrSvg) { qr.innerHTML = s.qrSvg; lastQrSvg = s.qrSvg; }
+  } else {
+    qr.hidden = true;
+    qr.innerHTML = '';
+    lastQrSvg = '';
+  }
+
+  const btn = $('btn-reset');
+  btn.disabled = !s.available || s.state === 'resetting';
+  btn.classList.toggle('primary', s.state === 'expired');
+  $('wa-reset-note').textContent = s.authDir ? 'session folder: ' + s.authDir : '';
+}
+
+async function loadSession() {
+  try {
+    renderSession(await api('/api/session'));
+  } catch { /* non vitale: se il token è sbagliato lo dice già load() */ }
+}
+
+$('btn-reset').onclick = async () => {
+  const ok = confirm(
+    'Delete the WhatsApp session and pair again?\n\n' +
+    'Only the session folder is deleted: rules, contacts and media stay.\n' +
+    'Until you scan the new QR no message is read.',
+  );
+  if (!ok) return;
+  const btn = $('btn-reset');
+  btn.disabled = true;
+  message('wa-result', '', '');
+  try {
+    await api('/api/session/reset', { method: 'POST' });
+    await loadSession();
+  } catch (e) {
+    message('wa-result', 'err', 'The session was not reset: ' + e.message);
+  } finally {
+    loadSession();
+  }
+};
+
 /* ---------------- log ---------------- */
 
 function levelClass(level) {
@@ -582,7 +672,13 @@ setInterval(() => {
   if ($('log-live').checked && document.visibilityState === 'visible' && token()) loadLogs();
 }, 5000);
 
-if (token()) { load(); loadLogs(); } else $('status').textContent = 'enter the token';
+// Il QR cambia ogni ~20 secondi e la sessione può scadere mentre il pannello è
+// aperto: lo stato si rilegge da solo, senza premere niente.
+setInterval(() => {
+  if (document.visibilityState === 'visible' && token()) loadSession();
+}, 4000);
+
+if (token()) { load(); loadLogs(); loadSession(); } else $('status').textContent = 'enter the token';
 </script>
 </body>
 </html>

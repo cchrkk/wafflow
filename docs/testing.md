@@ -79,7 +79,7 @@ Every push builds and validates:
 | example rules | they load and the engine responds |
 | Home Assistant actions | all of them, against the fake server |
 | home commands | that "turn on the bedroom light" really calls `light.turn_on` on `light.bedroom` |
-| web panel | endpoints, auth, and that broken YAML is refused without touching the file |
+| web panel | endpoints, auth, the session reset with its QR, and that broken YAML is refused without touching the file |
 | editor | highlighting, indentation and auto-indent, unit-tested |
 | rule engine | matching, `\b` traps, capture groups, placeholder rendering |
 | telegram mirror | every kind of message becomes the right Telegram call, media included |

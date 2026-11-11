@@ -23,7 +23,9 @@ other, forever. Typical causes, most frequent first:
    `taskkill /F /IM node.exe` and restart.
 2. **Another process reading the same `auth/` folder** — an old copy of the project, or a
    different Baileys client.
-3. The session was opened elsewhere: re-pair with a QR.
+3. The session was opened elsewhere: re-pair with a QR — **Delete the session and
+   re-pair** in the [web panel](web-panel.md#when-the-session-expires-loggedout), or
+   delete `auth/` and restart.
 
 After 4 attempts the program stops by itself instead of continuing the fight, and says so.
 The client now **always closes the previous socket** before opening a new one — the absence
@@ -128,8 +130,13 @@ because the address book bridges them.
 
 ## `loggedOut`
 
-WhatsApp closed the session (revoked from the phone, or too long without use). Delete the
-`auth/` folder and restart to re-pair.
+WhatsApp closed the session (revoked from the phone, or too long without use).
+
+With the [web panel](web-panel.md#when-the-session-expires-loggedout) on: the state box
+says **session expired**, press **Delete the session and re-pair (QR)** and scan the QR
+that appears in the page. Only `auth/` is deleted; rules, contacts and media stay.
+
+Without the panel: delete the `auth/` folder and restart to re-pair.
 
 ## Telegram: "chat not found"
 

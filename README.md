@@ -48,7 +48,8 @@ two lines in `.env` either way.
 
 Then open the **web panel** ([`docs/web-panel.md`](docs/web-panel.md)): write rules, try
 them against a text or a voice note, and see **which criterion** blocked each rule. It is
-by far the fastest way to understand what you are doing.
+by far the fastest way to understand what you are doing. If the session expires, the same
+page shows the new QR: **Delete the session and re-pair**, no terminal needed.
 
 ---
 
@@ -61,7 +62,7 @@ by far the fastest way to understand what you are doing.
 | **Classification** | an optional LLM decides what a message is about (work, orders, spam) |
 | **Actions** | Telegram (notices **and chat mirroring**, media included), Home Assistant (notifications, scripts, lights, automations, Assist), webhooks, JSONL files, local commands |
 | **Contacts** | keeps LIDs, phone numbers and names together: WhatsApp is migrating to anonymous IDs and your jids keep working |
-| **Web panel** | rule editor that validates before saving, plus a test bench |
+| **Web panel** | rule editor that validates before saving, a test bench, and the WhatsApp session with its QR: re-pair from the page |
 | **Docker** | public image on GHCR, deploy without building |
 | **Health** | the container reports `unhealthy` when it stops reading, with a Telegram alert |
 

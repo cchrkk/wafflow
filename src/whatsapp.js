@@ -175,9 +175,44 @@ export function enforceReadOnly(sock, { allowReply }) {
 export function startWhatsApp({ onMessage, onQr, onState = () => {}, allowReply = false }) {
   let sock = null;
   let stopped = false;
+  // Ogni reset alza epoch: il giro in corso capisce che la sessione a cui
+  // stava lavorando non esiste più e riparte invece di riconnettersi a quella.
+  let epoch = 0;
+  // Sveglia l'attesa in corso (sonno di backoff o chiusura del socket): il
+  // reset non deve aspettare 30 secondi prima di far vedere il QR.
+  let wakeUp = null;
+  // Chi sta aspettando la chiusura del socket: senza questo, teardown() toglie
+  // i listener e la promise non si risolve mai.
+  let settleConnection = null;
+  // La cancellazione di auth/ in corso: il loop non deve riaprire la sessione
+  // mentre la cartella viene svuotata.
+  let pausedForReset = null;
+  // Il giro del loop attuale, per poterlo riavviare dopo una sessione scaduta.
+  let running = null;
+  let resetting = null;
   const groupNames = new Map();
   let resolveReady;
   const ready = new Promise((r) => { resolveReady = r; });
+
+  /** setTimeout che si può interrompere con wake(). */
+  function nap(ms) {
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        if (wakeUp === done) wakeUp = null;
+        resolve();
+      };
+      const timer = setTimeout(done, ms);
+      timer.unref?.();
+      wakeUp = done;
+    });
+  }
+
+  function wake() {
+    const w = wakeUp;
+    wakeUp = null;
+    w?.();
+  }
 
   async function resolveChatName(jid, isGroup, msg) {
     if (!isGroup) {
@@ -241,6 +276,11 @@ export function startWhatsApp({ onMessage, onQr, onState = () => {}, allowReply 
   function teardown() {
     const old = sock;
     sock = null;
+    // I listener stanno per essere tolti: se qualcuno aspetta la chiusura,
+    // va sbloccato qui o resta appeso per sempre.
+    const settle = settleConnection;
+    settleConnection = null;
+    settle?.({ cancelled: true });
     if (!old) return;
     try {
       old.ev.removeAllListeners('connection.update');
@@ -259,9 +299,15 @@ export function startWhatsApp({ onMessage, onQr, onState = () => {}, allowReply 
 
   async function connectOnce() {
     teardown(); // mai due socket vivi insieme sulle stesse credenziali
+    // Un reset in corso sta svuotando auth/: aprire adesso vorrebbe dire
+    // leggere credenziali che stanno per sparire.
+    if (pausedForReset) await pausedForReset;
+    const myEpoch = epoch;
     if (!fs.existsSync(paths.auth)) fs.mkdirSync(paths.auth, { recursive: true });
     const { state, saveCreds } = await useMultiFileAuthState(paths.auth);
     const { version } = await fetchLatestBaileysVersion();
+    // Un reset è passato mentre leggevamo i file: questa sessione non vale più.
+    if (myEpoch !== epoch) return { cancelled: true };
 
     const s = makeWASocket({
       version,
@@ -301,6 +347,14 @@ export function startWhatsApp({ onMessage, onQr, onState = () => {}, allowReply 
     // altrimenti il loop riaprirebbe subito un secondo socket sulle stesse credenziali.
     return new Promise((resolve) => {
       let opened = false;
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        if (settleConnection === finish) settleConnection = null;
+        resolve(value);
+      };
+      settleConnection = finish;
       s.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
         if (qr) {
@@ -325,7 +379,7 @@ export function startWhatsApp({ onMessage, onQr, onState = () => {}, allowReply 
           const statusCode = new Boom(lastDisconnect?.error)?.output?.statusCode;
           const loggedOut = statusCode === DisconnectReason.loggedOut;
           onState(loggedOut ? 'loggedOut' : 'close', statusCode);
-          resolve({ statusCode, loggedOut, opened });
+          finish({ statusCode, loggedOut, opened });
         }
       });
     });
@@ -354,59 +408,128 @@ export function startWhatsApp({ onMessage, onQr, onState = () => {}, allowReply 
     let replacedStrikes = 0;
 
     while (!stopped) {
+      const myEpoch = epoch;
+      let outcome;
       try {
-        const { statusCode, loggedOut, opened } = await connectOnce();
-
-        if (loggedOut) {
-          stopped = true;
-          onState('fatal');
-          log.error(`session closed by WhatsApp (loggedOut). Delete the folder "${paths.auth}" and restart to pair again.`);
-          return;
-        }
-
-        if (statusCode === connectionReplaced) {
-          replacedStrikes += 1;
-          log.error(
-            `connection replaced (440, attempt ${replacedStrikes}/4): another session is using ` +
-            `the same credentials in "${paths.auth}".`,
-          );
-          if (replacedStrikes > 3) {
-            stopped = true;
-            onState('fatal');
-            log.error(
-              'repeated 440: close the other instance of this program (or the WhatsApp Web session opened ' +
-              'with the same number) and restart. No other process may use the same auth/ folder.',
-            );
-            return;
-          }
-        } else {
-          replacedStrikes = 0;
-        }
-
-        // attempt riparte da 0 dopo una connessione sana: non è un contatore
-        // di tentativi "veri", quindi non va mostrato (prima stampava
-        // "tentativo 0", che non voleva dire niente).
-        attempt = opened ? 0 : attempt + 1;
-        const delay = backoffMs(statusCode, attempt);
-        const line = `connection lost (code ${statusCode}), retrying in ${(delay / 1000).toFixed(1)}s`;
-        if (CADUTE_BANALI.has(statusCode)) log.info(line);
-        else log.warn(line);
-        await sleep(delay);
+        outcome = await connectOnce();
       } catch (err) {
+        if (stopped) return;
         attempt += 1;
         const delay = backoffMs(0, attempt);
         log.warn(`reconnecting in ${(delay / 1000).toFixed(1)}s (attempt ${attempt}): ${err.message}`);
-        await sleep(delay);
+        await nap(delay);
+        continue;
       }
+
+      if (stopped) return;
+
+      // Un reset ha buttato via la sessione mentre questo giro era in corso:
+      // non è una caduta, si riparte subito con credenziali nuove.
+      if (outcome.cancelled || myEpoch !== epoch) {
+        attempt = 0;
+        replacedStrikes = 0;
+        continue;
+      }
+
+      const { statusCode, loggedOut, opened } = outcome;
+
+      if (loggedOut) {
+        stopped = true;
+        onState('fatal');
+        log.error(
+          `session closed by WhatsApp (loggedOut). Use "Re-pair" in the web panel, ` +
+          `or delete the folder "${paths.auth}" and restart, to scan a new QR.`,
+        );
+        return;
+      }
+
+      if (statusCode === connectionReplaced) {
+        replacedStrikes += 1;
+        log.error(
+          `connection replaced (440, attempt ${replacedStrikes}/4): another session is using ` +
+          `the same credentials in "${paths.auth}".`,
+        );
+        if (replacedStrikes > 3) {
+          stopped = true;
+          onState('fatal');
+          log.error(
+            'repeated 440: close the other instance of this program (or the WhatsApp Web session opened ' +
+            'with the same number) and restart. No other process may use the same auth/ folder.',
+          );
+          return;
+        }
+      } else {
+        replacedStrikes = 0;
+      }
+
+      // attempt riparte da 0 dopo una connessione sana: non è un contatore
+      // di tentativi "veri", quindi non va mostrato (prima stampava
+      // "tentativo 0", che non voleva dire niente).
+      attempt = opened ? 0 : attempt + 1;
+      const delay = backoffMs(statusCode, attempt);
+      const line = `connection lost (code ${statusCode}), retrying in ${(delay / 1000).toFixed(1)}s`;
+      if (CADUTE_BANALI.has(statusCode)) log.info(line);
+      else log.warn(line);
+      await nap(delay); // stop() e reset() la interrompono subito
     }
   }
 
-  const run = loop();
+  /** Tiene vivo il loop, e lo riavvia se si era fermato (sessione scaduta). */
+  function supervise() {
+    if (!running) {
+      running = loop().finally(() => { running = null; });
+    }
+    return running;
+  }
+
+  /**
+   * Butta via la sessione e riparte da zero: cancella auth/, poi il loop
+   * riapre e WhatsApp mostra un QR nuovo. Prima serviva fermare il processo e
+   * cancellare la cartella a mano, e con Docker il QR era difficile da vedere.
+   */
+  async function reset() {
+    if (resetting) return resetting;
+    resetting = (async () => {
+      log.warn(`resetting the session: deleting "${paths.auth}" and pairing again`);
+      stopped = false;
+      epoch += 1;
+      onState('reset');
+      // Il loop aspetta questa promise prima di riaprire: senza, leggerebbe i
+      // file mentre li stiamo cancellando.
+      const cleanup = (async () => {
+        await sleep(200); // il vecchio socket deve finire di scrivere creds.json
+        fs.rmSync(paths.auth, { recursive: true, force: true });
+        fs.mkdirSync(paths.auth, { recursive: true });
+      })();
+      pausedForReset = cleanup;
+      teardown();
+      wake();
+      try {
+        await cleanup;
+      } finally {
+        if (pausedForReset === cleanup) pausedForReset = null;
+      }
+      supervise();
+    })();
+    try {
+      return await resetting;
+    } finally {
+      resetting = null;
+    }
+  }
+
+  const run = supervise();
 
   return {
     get sock() { return sock; },
     ready,
     run,
-    stop() { stopped = true; teardown(); },
+    reset,
+    stop() {
+      stopped = true;
+      epoch += 1;
+      wake();
+      teardown();
+    },
   };
 }

@@ -22,12 +22,14 @@ Then open `.env` and fill in at least the transcription block.
 npm start
 ```
 
-On the first run a **QR code appears in the terminal**: WhatsApp → *Settings* → *Linked
-devices* → *Link a device* → scan it.
+On the first run a **QR code appears in the terminal** (and in the web panel, if
+`WEB_ENABLED=true`): WhatsApp → *Settings* → *Linked devices* → *Link a device* → scan it.
 
 Credentials go into `auth/`; from the second run on you don't need the QR again.
 
-If WhatsApp closes the session (*logout*), delete `auth/` and restart to re-pair.
+If WhatsApp closes the session (*logout*), use **Delete the session and re-pair (QR)** in
+the [web panel](web-panel.md#when-the-session-expires-loggedout), or delete `auth/` and
+restart, to re-pair.
 
 ## Auto-start on Windows
 
@@ -48,8 +50,8 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-On the first run the QR appears **in the logs** (`docker compose logs -f wafflow`)
-to be scanned from WhatsApp → *Linked devices*.
+On the first run the QR appears **in the logs** (`docker compose logs -f wafflow`) or in
+the web panel, to be scanned from WhatsApp → *Linked devices*.
 
 What the generic stack does:
 

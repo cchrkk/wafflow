@@ -4,6 +4,13 @@
 
 ### Added
 
+- **Re-pair from the web panel, QR included.** When WhatsApp closes the session
+  (`loggedOut`, a session revoked from the phone or left unused for too long) the panel
+  now shows it as **session expired** and offers **Delete the session and re-pair (QR)**:
+  it deletes `auth/` (rules, contacts, logs and media stay), asks WhatsApp for a new QR
+  and shows it in the page. The process keeps running: no restart, no terminal. Before,
+  the only way was to stop everything, delete the folder and hunt the QR in the logs. The
+  panel also shows the QR on first pairing, and follows the rotation every ~20 seconds.
 - **`mirror.telegram`: a whole WhatsApp chat, mirrored onto Telegram.** One rule that
   matches the chat (`match.chatName` or `chatJid`, no `type`) copies every message as it
   is: text, photos, voice notes (as Telegram voice messages), audio, video, documents,
