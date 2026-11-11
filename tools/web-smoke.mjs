@@ -58,6 +58,20 @@ fs.writeFileSync(rules, example.replace('processOwnMessages: false', 'processOwn
 paths.rulesFile = rules;
 
 let config = loadConfig();
+
+// La sessione WhatsApp non esiste in questo test: un controllo finto verifica
+// che il pannello la esponga e che il pulsante chiami davvero il reset.
+let sessionState = { state: 'expired', qr: null, since: new Date().toISOString(), code: 401 };
+let sessionResets = 0;
+const session = {
+  status: () => ({ ...sessionState, authDir: 'auth' }),
+  reset: async () => {
+    sessionResets += 1;
+    sessionState = { ...sessionState, state: 'starting', qr: null, code: null };
+    return sessionState;
+  },
+};
+
 const web = await startWeb({
   port: PORT,
   host: '127.0.0.1',
@@ -67,6 +81,7 @@ const web = await startWeb({
     config = loadConfig();
     return config;
   },
+  session,
 });
 
 const j = async (r) => ({ status: r.status, body: await r.json() });
@@ -175,6 +190,32 @@ try {
     assert(r.status === 200, `status ${r.status}`);
     const body = await r.json();
     assert(Array.isArray(body.messages), 'no messages array');
+  });
+
+  await check('GET /api/session reports the WhatsApp session', async () => {
+    const { status, body } = await j(await fetch(`${base}/api/session`, { headers: H }));
+    assert(status === 200, `status ${status}`);
+    assert(body.state === 'expired', `unexpected state: ${body.state}`);
+    assert(body.available === true, 'the panel says it cannot reset the session');
+    assert(body.authDir === 'auth', `authDir missing: ${body.authDir}`);
+    assert(body.qr === undefined, 'the raw QR must not leave the server');
+  });
+
+  await check('POST /api/session/reset asks the client to pair again', async () => {
+    const before = sessionResets;
+    const { status, body } = await j(await fetch(`${base}/api/session/reset`, { method: 'POST', headers: H }));
+    assert(status === 200, `status ${status}: ${body.error || ''}`);
+    assert(sessionResets === before + 1, 'the reset was not called');
+    assert(body.state === 'starting', `the state did not change: ${body.state}`);
+  });
+
+  await check('GET /api/session renders the QR as SVG', async () => {
+    sessionState = { state: 'qr', qr: '2@abcdefghijklmnop,0123456789', since: new Date().toISOString(), code: null };
+    const { status, body } = await j(await fetch(`${base}/api/session`, { headers: H }));
+    assert(status === 200, `status ${status}`);
+    assert(typeof body.qrSvg === 'string' && body.qrSvg.includes('<svg'), 'the answer has no SVG');
+    assert(body.qr === undefined, 'the raw QR must not leave the server');
+    sessionState = { ...sessionState, state: 'expired', qr: null, code: 401 };
   });
 
   await check('PUT /api/rules REFUSES broken yaml and does not touch the file', async () => {

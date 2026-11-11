@@ -9,7 +9,7 @@ The short version is in the [README](../README.md). Everything else is here.
 | [actions](actions.md) | available actions, placeholders, capture groups |
 | [transcription](transcription.md) | Groq/OpenAI or local whisper |
 | [Home Assistant](home-assistant.md) | token, examples for each action, testing without risk |
-| [web panel](web-panel.md) | rule editor and test bench |
+| [web panel](web-panel.md) | rule editor, test bench and the WhatsApp session with its QR |
 | [data and media](data-and-media.md) | where everything goes and when it is deleted |
 | [testing](testing.md) | simulations, fake servers, what runs in CI |
 | [troubleshooting](troubleshooting.md) | known limits and failures already hit, with the cause |

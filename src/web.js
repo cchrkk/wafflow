@@ -3,6 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { renderSVG } from 'uqr';
 import { paths, loadConfig } from './config.js';
 import { childLogger, logsSince, markLogs, recentLogs } from './logger.js';
 import { ruleMatches, classifyAllows } from './rules.js';
@@ -114,6 +115,24 @@ function readRulesFile() {
 }
 
 /**
+ * Il QR come SVG, per mostrarlo nel pannello: WhatsApp lo vuole scansionato e
+ * un token in testo non serve a nessuno. Il QR grezzo non esce dal server.
+ */
+function sessionSnapshot(session) {
+  const s = session?.status?.() || { state: 'unavailable' };
+  let qrSvg = null;
+  if (s.qr) {
+    try {
+      qrSvg = renderSVG(s.qr, { ecc: 'M', border: 2, pixelSize: 6 });
+    } catch (err) {
+      log.warn({ err: err.message }, 'cannot render the QR');
+    }
+  }
+  const { qr, ...rest } = s;
+  return { ...rest, available: Boolean(session?.reset), qrSvg };
+}
+
+/**
  * YAML forbids a tab as indentation, and a tab is invisible in a textarea: the
  * mistake only surfaces when the save is refused, with a message about line 210
  * and no way to see what is wrong there. Expanding the leading tabs to spaces
@@ -153,8 +172,10 @@ function writeRulesFile(yamlText) {
  * @param {string} [opts.token]      se vuoto ne viene generato uno
  * @param {Function} opts.reload     ricarica la config e la restituisce (lancia se non valida)
  * @param {Function} opts.getConfig  config corrente
+ * @param {object} [opts.session]    controllo della sessione WhatsApp:
+ *                                   { status(): stato, reset(): cancella auth/ e rifà il QR }
  */
-export function startWeb({ port, host, token: configuredToken, reload, getConfig }) {
+export function startWeb({ port, host, token: configuredToken, reload, getConfig, session }) {
   const { token, generated } = resolveToken(configuredToken);
 
   const server = http.createServer(async (req, res) => {
@@ -209,6 +230,26 @@ export function startWeb({ port, host, token: configuredToken, reload, getConfig
         send(res, 200, { lines: recentLogs(n) });
         return;
       }
+      // --- la sessione WhatsApp: stato, QR, e il reset che rifà il login ---
+      if (route === 'GET /api/session') {
+        send(res, 200, sessionSnapshot(session));
+        return;
+      }
+
+      // Cancella auth/ e riparte: WhatsApp manderà un QR nuovo, che il pannello
+      // mostra da solo al giro successivo. Le regole, i contatti e i media non
+      // vengono toccati.
+      if (route === 'POST /api/session/reset') {
+        if (!session?.reset) {
+          send(res, 501, { error: 'this panel has no control over the WhatsApp session' });
+          return;
+        }
+        await session.reset();
+        log.warn('WhatsApp session reset from the panel: waiting for the new QR');
+        send(res, 200, { ok: true, ...sessionSnapshot(session) });
+        return;
+      }
+
       // --- stato: regole attive + come si legge il file adesso ---
       if (route === 'GET /api/state') {
         const config = getConfig();

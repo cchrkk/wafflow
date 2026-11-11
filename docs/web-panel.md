@@ -52,10 +52,32 @@ notes-to-myself           fails: senderJid, chatName
 The `failed` field was already computed by `ruleMatches()` and used to end up in a debug
 log line: the panel just shows it to you.
 
+## When the session expires (loggedOut)
+
+WhatsApp sometimes closes the session on its own: you revoke it from the phone, the
+phone is reset, or it simply goes unused for long enough. Until now that meant stopping
+the program, deleting `auth/` and starting again — and with Docker, hunting the QR in
+`docker compose logs`.
+
+The panel now has a **WhatsApp session** box at the top of the editor column:
+
+- the state — *connected*, *scan the QR*, *reconnecting*, **session expired**;
+- the QR itself, the same one the terminal prints: scan it from *Linked devices*;
+- **Delete the session and re-pair (QR)**, the button to press when the state says
+  *session expired*. It deletes `auth/` — and only that: rules, contacts, logs and media
+  stay — then asks WhatsApp for a new QR and shows it in the panel a couple of seconds
+  later. The process keeps running: no restart, no terminal.
+
+The QR changes every ~20 seconds and the panel refreshes the state every 4 seconds, so
+it follows along by itself. The button asks for a confirmation first, because until a
+new QR is scanned no message is read.
+
 ## Security
 
 - **The test is always a dry run**: the panel has no code path that sends WhatsApp
   messages — not even with `ALLOW_REPLY=true`. A bug in the panel cannot make it send.
+- **Deleting the session** only deletes `auth/`, and only with the panel token: the same
+  token that can rewrite the rules. It cannot send anything either.
 - With `WEB_BIND=0.0.0.0` anyone who reaches the port can **rewrite your rules**: always
   set a `WEB_TOKEN`. If you leave it empty it is generated, not left open.
 - In Docker the host binding is a separate choice, because inside the container the app

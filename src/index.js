@@ -22,6 +22,18 @@ const flagValue = (f) => {
   return i >= 0 ? argv[i + 1] : undefined;
 };
 
+/**
+ * Stato della sessione WhatsApp, letto dal pannello web: serve a mostrare il QR
+ * e a rifare il login senza toccare il terminale (o i log di Docker).
+ */
+const session = { state: 'starting', qr: null, since: new Date().toISOString(), code: null };
+
+function setSession(state, patch = {}) {
+  session.state = state;
+  session.since = new Date().toISOString();
+  Object.assign(session, patch);
+}
+
 const HELP = `
 wafflow — categorises WhatsApp messages and runs actions
 
@@ -424,6 +436,10 @@ async function main() {
   // Pannello web, facoltativo. Non può mandare messaggi: passa sempre da
   // handleMessage({dryRun:true}), quindi l'invariante di sola lettura regge
   // anche se il pannello avesse un bug.
+  // Client WhatsApp: viene creato dopo il pannello, ma il pannello ne ha già
+  // bisogno per il pulsante "Re-pair" — da qui il riferimento assegnato dopo.
+  let client = null;
+
   if (env.webEnabled) {
     try {
       await startWeb({
@@ -437,6 +453,27 @@ async function main() {
           logger.info(`♻ rules reloaded from the panel (${config.rules.length} active)`);
           return config;
         },
+        session: {
+          status: () => ({
+            state: session.state,
+            qr: session.qr,
+            since: session.since,
+            code: session.code,
+            authDir: path.relative(paths.root, paths.auth),
+          }),
+          reset: async () => {
+            if (!client) throw new Error('the WhatsApp client is not running yet');
+            const prev = { state: session.state, qr: session.qr, code: session.code };
+            setSession('resetting', { qr: null, code: null });
+            try {
+              await client.reset();
+            } catch (err) {
+              // la sessione non è stata cancellata: torna a dire com'era
+              setSession(prev.state, prev);
+              throw err;
+            }
+          },
+        },
       });
     } catch (err) {
       logger.error(`web panel did not start: ${err.message}`);
@@ -449,11 +486,19 @@ async function main() {
   // prima, o i primi fallimenti di decifratura non li conta nessuno.
   startHealth();
 
-  const client = startWhatsApp({
+  client = startWhatsApp({
     allowReply: config.settings.allowReply,
+    onQr: (qr) => {
+      setSession('qr', { qr });
+      if (env.webEnabled) logger.info('QR ready: open the web panel to scan it');
+    },
     onState: (s, code) => {
       // la salute tiene il conto della connessione: è quello che legge --health
       markConnected(s === 'open', s);
+      if (s === 'open') setSession('open', { qr: null, code: null });
+      else if (s === 'loggedOut' || s === 'fatal') setSession('expired', { qr: null, code: code ?? null });
+      else if (s === 'reset') setSession('starting', { qr: null, code: null });
+      else if (s === 'close') setSession('reconnecting');
       // 'open' e 'close' sono già raccontati da whatsapp.js: qui solo il resto,
       // e i casi gravi, per non avere tre righe per ogni caduta di rete.
       if (s === 'loggedOut' || s === 'fatal') logger.error({ code }, 'connection: session closed by WhatsApp');
